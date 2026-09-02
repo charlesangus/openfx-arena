@@ -34,6 +34,9 @@ option(RICHTEXT "Enable RichText OFX" OFF)
 option(HALDCLUT "Enable HaldCLUT OFX (requires curl)" OFF)
 option(BUNDLE_FONTS_CONF "Bundle fonts.conf" OFF)
 option(READMISC_LEGACY "Enable legacy file formats in ReadMisc" OFF)
+option(WITH_SVG "Enable SVG reader (requires librsvg)" ON)
+option(WITH_PDF "Enable PDF reader (requires poppler)" ON)
+option(WITH_CDR "Enable CorelDRAW reader (requires libcdr and librevenge)" ON)
 set(MAGICK_PKG_CONFIG "Magick++" CACHE STRING "ImageMagick pkg-config name")
 
 # Require OpenGL
@@ -53,12 +56,18 @@ pkg_search_module(FONTCONFIG REQUIRED fontconfig)
 pkg_search_module(PANGO REQUIRED pangocairo)
 pkg_search_module(XML REQUIRED libxml-2.0)
 pkg_search_module(ZIP REQUIRED libzip)
-pkg_search_module(SVG REQUIRED librsvg-2.0)
+if(${WITH_SVG})
+    pkg_search_module(SVG REQUIRED librsvg-2.0)
+endif()
 pkg_search_module(GLIB REQUIRED glib-2.0)
 pkg_search_module(CAIRO REQUIRED cairo)
-pkg_search_module(POPPLER REQUIRED poppler-glib)
-pkg_check_modules(REVENGE REQUIRED librevenge-0.0 librevenge-generators-0.0 librevenge-stream-0.0)
-pkg_search_module(CDR REQUIRED libcdr-0.1)
+if(${WITH_PDF})
+    pkg_search_module(POPPLER REQUIRED poppler-glib)
+endif()
+if(${WITH_CDR})
+    pkg_check_modules(REVENGE REQUIRED librevenge-0.0 librevenge-generators-0.0 librevenge-stream-0.0)
+    pkg_search_module(CDR REQUIRED libcdr-0.1)
+endif()
 add_compile_options(${MAGICK_CFLAGS}) # we need the magick flags
 
 if(${READMISC_LEGACY})
@@ -156,10 +165,7 @@ FILE(GLOB SUPPORT_SOURCES
 FILE(GLOB SOURCES
     "Text/TextOFX.cpp"
     "Text/RichText.cpp"
-    "Extra/ReadSVG.cpp"
-    "Extra/ReadPDF.cpp"
     "Extra/OpenRaster.cpp"
-    "Extra/ReadCDR.cpp"
     "Extra/ReadKrita.cpp"
     "Magick/Arc.cpp"
     "Magick/Charcoal.cpp"
@@ -204,6 +210,18 @@ FILE(GLOB RESOURCES
     "Magick/Extra.png"
     "Magick/Extra.svg"
 )
+
+if(${WITH_SVG})
+    list(APPEND SOURCES "Extra/ReadSVG.cpp")
+endif()
+
+if(${WITH_PDF})
+    list(APPEND SOURCES "Extra/ReadPDF.cpp")
+endif()
+
+if(${WITH_CDR})
+    list(APPEND SOURCES "Extra/ReadCDR.cpp")
+endif()
 
 if(${AUDIO})
     list(APPEND SOURCES "Audio/AudioCurve.cpp")
