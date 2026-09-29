@@ -43,7 +43,7 @@
 #define kSupportsRGBA true
 #define kSupportsRGB false
 #define kSupportsXY false
-#define kSupportsAlpha false
+#define kSupportsAlpha true
 #define kSupportsTiles false
 #define kIsMultiPlanar true
 
@@ -398,7 +398,7 @@ OfxStatus ReadPSDPlugin::getClipComponents(const OFX::ClipComponentsArguments& a
 }
 
 void ReadPSDPlugin::decodePlane(const std::string& filename, OfxTime time, int /*view*/, bool /*isPlayback*/, const OfxRectI& renderWindow, const OfxPointD& renderScale, float *pixelData, const OfxRectI& bounds,
-                                 OFX::PixelComponentEnum /*pixelComponents*/, OFX::PixelComponentEnum /*remappedComponents*/, int /*pixelComponentCount*/, const std::string& rawComponents, int /*rowBytes*/)
+                                 OFX::PixelComponentEnum pixelComponents, OFX::PixelComponentEnum /*remappedComponents*/, int /*pixelComponentCount*/, const std::string& rawComponents, int /*rowBytes*/)
 {
     assert(renderScale.x == 1. && renderScale.y == 1.);
     unused(renderScale);
@@ -602,10 +602,25 @@ void ReadPSDPlugin::decodePlane(const std::string& filename, OfxTime time, int /
     }
 
     // Return image
+    // pixelData is sized for the components the host actually asked for; the map string
+    // passed to write() must match or ImageMagick overruns the buffer.
+    std::string map;
+    switch (pixelComponents) {
+    case OFX::ePixelComponentAlpha:
+        map = "A";
+        break;
+    case OFX::ePixelComponentRGB:
+        map = "RGB";
+        break;
+    case OFX::ePixelComponentRGBA:
+    default:
+        map = "RGBA";
+        break;
+    }
     Magick::Image container(Magick::Geometry(width,height),Magick::Color("rgba(0,0,0,0)"));
     container.composite(image,offsetX,offsetY,Magick::OverCompositeOp);
     container.flip();
-    container.write(0,0,renderWindow.x2 - renderWindow.x1,renderWindow.y2 - renderWindow.y1,"RGBA",Magick::FloatPixel,pixelData);
+    container.write(0,0,renderWindow.x2 - renderWindow.x1,renderWindow.y2 - renderWindow.y1,map.c_str(),Magick::FloatPixel,pixelData);
 }
 
 void ReadPSDPlugin::changedParam(const OFX::InstanceChangedArgs &args, const std::string &paramName)
