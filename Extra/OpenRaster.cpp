@@ -39,7 +39,7 @@
 #define kSupportsRGBA true
 #define kSupportsRGB false
 #define kSupportsXY false
-#define kSupportsAlpha false
+#define kSupportsAlpha true
 #define kSupportsTiles false
 #define kIsMultiPlanar true
 
@@ -302,7 +302,7 @@ OpenRasterPlugin::getClipComponents(const OFX::ClipComponentsArguments& args, OF
 
 void
 OpenRasterPlugin::decodePlane(const std::string& filename, OfxTime /*time*/, int /*view*/, bool /*isPlayback*/, const OfxRectI& renderWindow, const OfxPointD& renderScale, float *pixelData, const OfxRectI& /*bounds*/,
-                                 OFX::PixelComponentEnum /*pixelComponents*/, OFX::PixelComponentEnum /*remappedComponents*/, int pixelComponentCount, const std::string& rawComponents, int /*rowBytes*/)
+                                 OFX::PixelComponentEnum pixelComponents, OFX::PixelComponentEnum /*remappedComponents*/, int pixelComponentCount, const std::string& rawComponents, int /*rowBytes*/)
 {
     assert(renderScale.x == 1. && renderScale.y == 1.);
     unused(renderScale);
@@ -372,22 +372,30 @@ OpenRasterPlugin::decodePlane(const std::string& filename, OfxTime /*time*/, int
         OFX::throwSuiteStatusException(kOfxStatErrFormat);
     }
 
-    unsigned char* pixels = new unsigned char[width * height * pixelComponentCount];
+    unsigned char* pixels = new unsigned char[width * height * 4];
     for (int i = 0; i < width; ++i) {
         for (int j = 0; j < height; ++j) {
-            for (int k = 0; k < pixelComponentCount; ++k)
-                pixels[(i + j * width) * pixelComponentCount + k] = buffer[(i + (height - 1 - j) * width) * pixelComponentCount + k];
+            for (int k = 0; k < 4; ++k)
+                pixels[(i + j * width) * 4 + k] = buffer[(i + (height - 1 - j) * width) * 4 + k];
         }
     }
 
+    // lodepng_decode32() always produces 4-channel RGBA; pick out whichever
+    // channels the host actually asked for.
+    int srcChannel[4] = { 0, 1, 2, 3 };
+    if (pixelComponents == OFX::ePixelComponentAlpha) {
+        srcChannel[0] = 3;
+    }
+
     int offset = 0;
+    int pixelOffset = 0;
     for (int y = 0; y < height; y++) {
         for (int x = 0; x < width; x++) {
-            pixelData[offset + 0] = pixels[offset + 0] * (1.f / 255);
-            pixelData[offset + 1] = pixels[offset + 1] * (1.f / 255);
-            pixelData[offset + 2] = pixels[offset + 2] * (1.f / 255);
-            pixelData[offset + 3] = pixels[offset + 3] * (1.f / 255);
+            for (int k = 0; k < pixelComponentCount; ++k) {
+                pixelData[offset + k] = pixels[pixelOffset + srcChannel[k]] * (1.f / 255);
+            }
             offset += pixelComponentCount;
+            pixelOffset += 4;
         }
     }
 
