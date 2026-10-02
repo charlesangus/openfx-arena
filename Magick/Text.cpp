@@ -31,9 +31,9 @@
 
 #define CLAMP(value, min, max) (((value) >(max)) ? (max) : (((value) <(min)) ? (min) : (value)))
 
-#define kPluginName "TextOFX"
+#define kPluginName "MagickTextOFX"
 #define kPluginGrouping "Draw"
-#define kPluginIdentifier "net.fxarena.openfx.Text"
+#define kPluginIdentifier "net.fxarena.openfx.MagickText"
 #define kPluginVersionMajor 5
 #define kPluginVersionMinor 7
 

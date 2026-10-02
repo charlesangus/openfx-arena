@@ -62,8 +62,8 @@ RESOURCES = \
     net.fxarena.openfx.Modulate.svg \
     fr.inria.openfx.ReadMisc.png \
     fr.inria.openfx.ReadMisc.svg \
-    net.fxarena.openfx.Text.png \
-    net.fxarena.openfx.Text.svg \
+    net.fxarena.openfx.MagickText.png \
+    net.fxarena.openfx.MagickText.svg \
     net.fxarena.openfx.Texture.png \
     net.fxarena.openfx.Texture.svg \
     HaldCLUT/net.fxarena.openfx.HaldCLUT.png \

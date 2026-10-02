@@ -101,9 +101,9 @@ ReflectionPlugin::ReflectionPlugin(OfxImageEffectHandle handle)
 {
     Magick::InitializeMagick(NULL);
     dstClip_ = fetchClip(kOfxImageEffectOutputClipName);
-    assert(dstClip_ && dstClip_->getPixelComponents() == OFX::ePixelComponentRGBA);
+    assert(dstClip_ && (dstClip_->getPixelComponents() == OFX::ePixelComponentRGBA || dstClip_->getPixelComponents() == OFX::ePixelComponentAlpha));
     srcClip_ = fetchClip(kOfxImageEffectSimpleSourceClipName);
-    assert(srcClip_ && srcClip_->getPixelComponents() == OFX::ePixelComponentRGBA);
+    assert(srcClip_ && (srcClip_->getPixelComponents() == OFX::ePixelComponentRGBA || srcClip_->getPixelComponents() == OFX::ePixelComponentAlpha));
 
     spacing_ = fetchIntParam(kParamSpace);
     offset_ = fetchIntParam(kParamOffset);
@@ -165,7 +165,7 @@ void ReflectionPlugin::render(const OFX::RenderArguments &args)
 
     // get pixel component
     OFX::PixelComponentEnum dstComponents  = dstImg->getPixelComponents();
-    if (dstComponents != OFX::ePixelComponentRGBA || (srcImg.get() && (dstComponents != srcImg->getPixelComponents()))) {
+    if ((dstComponents != OFX::ePixelComponentRGBA && dstComponents != OFX::ePixelComponentAlpha) || (srcImg.get() && (dstComponents != srcImg->getPixelComponents()))) {
         OFX::throwSuiteStatusException(kOfxStatErrFormat);
         return;
     }
@@ -217,9 +217,9 @@ void ReflectionPlugin::render(const OFX::RenderArguments &args)
     Magick::Image container(Magick::Geometry(srcWidth,srcHeight),Magick::Color("rgba(0,0,0,0)"));
     Magick::Image output(Magick::Geometry(srcWidth,srcHeight),Magick::Color("rgba(0,0,0,1)"));
     if (srcClip_ && srcClip_->isConnected())
-        image.read(srcWidth,srcHeight,"RGBA",Magick::FloatPixel,(float*)srcImg->getPixelData());
+        magickReadPixels(image,srcWidth,srcHeight,dstComponents,eMagickAlphaMatte,srcImg->getPixelData());
 
-    if (matte) {
+    if (matte && dstComponents != OFX::ePixelComponentAlpha) {
 #if MagickLibVersion >= 0x700
         image.alpha(false);
         image.alpha(true);
@@ -375,7 +375,10 @@ void ReflectionPlugin::render(const OFX::RenderArguments &args)
 #else
         output.composite(container, 0, 0, Magick::CopyOpacityCompositeOp);
 #endif
-        output.write(0,0,args.renderWindow.x2 - args.renderWindow.x1,args.renderWindow.y2 - args.renderWindow.y1,"RGBA",Magick::FloatPixel,(float*)dstImg->getPixelData());
+        if (dstComponents == OFX::ePixelComponentAlpha)
+            magickWriteAlphaPixels(output,0,0,args.renderWindow.x2 - args.renderWindow.x1,args.renderWindow.y2 - args.renderWindow.y1,eMagickAlphaMatte,dstImg->getPixelData());
+        else
+            output.write(0,0,args.renderWindow.x2 - args.renderWindow.x1,args.renderWindow.y2 - args.renderWindow.y1,"RGBA",Magick::FloatPixel,(float*)dstImg->getPixelData());
     }
 }
 
@@ -430,6 +433,7 @@ void ReflectionPluginFactory::describeInContext(OFX::ImageEffectDescriptor &desc
     // create the mandated source clip
     ClipDescriptor *srcClip = desc.defineClip(kOfxImageEffectSimpleSourceClipName);
     srcClip->addSupportedComponent(ePixelComponentRGBA);
+    srcClip->addSupportedComponent(ePixelComponentAlpha);
     srcClip->setTemporalClipAccess(false);
     srcClip->setSupportsTiles(kSupportsTiles);
     srcClip->setIsMask(false);
@@ -437,6 +441,7 @@ void ReflectionPluginFactory::describeInContext(OFX::ImageEffectDescriptor &desc
     // create the mandated output clip
     ClipDescriptor *dstClip = desc.defineClip(kOfxImageEffectOutputClipName);
     dstClip->addSupportedComponent(ePixelComponentRGBA);
+    dstClip->addSupportedComponent(ePixelComponentAlpha);
     dstClip->setSupportsTiles(kSupportsTiles);
 
     // make pages and params
