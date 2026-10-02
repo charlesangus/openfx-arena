@@ -8,17 +8,11 @@
 
 #include "ofxsImageEffect.h"
 
-// A one-channel (Alpha) stream is either a coverage matte, for geometric
-// effects whose result is the matte itself, or a grayscale picture, for
-// content effects that filter pixel values.
 enum MagickAlphaMode {
     eMagickAlphaMatte,
     eMagickAlphaGray
 };
 
-// Fills image from a float buffer of width*height*nComponents values.
-// Alpha sources are read as intensity; in matte mode the intensity is then
-// copied into the alpha channel so I == A.
 static inline void magickReadPixels(Magick::Image &image,
                                     int width,
                                     int height,
@@ -28,6 +22,8 @@ static inline void magickReadPixels(Magick::Image &image,
 {
     if (components == OFX::ePixelComponentAlpha) {
         image.read(width, height, "I", Magick::FloatPixel, (void*)data);
+        // Geometric effects transform and composite coverage through ImageMagick's alpha
+        // channel, and their result is read back from it, so the matte must live there too.
         if (mode == eMagickAlphaMatte) {
 #if MagickLibVersion >= 0x700
             image.alphaChannel(Magick::CopyAlphaChannel);
@@ -40,8 +36,6 @@ static inline void magickReadPixels(Magick::Image &image,
     }
 }
 
-// Exports the processed image straight into a one-component float buffer;
-// the buffer must hold w*h floats.
 static inline void magickWriteAlphaPixels(Magick::Image &image,
                                           int x,
                                           int y,
