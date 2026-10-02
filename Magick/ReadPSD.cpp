@@ -243,7 +243,7 @@ private:
     virtual void decodePlane(const std::string& filename, OfxTime time, int view, bool isPlayback, const OfxRectI& renderWindow, const OfxPointD& renderScale, float *pixelData, const OfxRectI& bounds, OFX::PixelComponentEnum pixelComponents, OFX::PixelComponentEnum remappedComponents, int pixelComponentCount, const std::string& rawComponents, int rowBytes) OVERRIDE FINAL;
     virtual bool getFrameBounds(const std::string& filename, OfxTime time, int view,OfxRectI *bounds, OfxRectI* format, double *par, std::string *error,int *tile_width, int *tile_height) OVERRIDE FINAL;
     virtual void changedParam(const OFX::InstanceChangedArgs &args, const std::string &paramName) OVERRIDE FINAL;
-    virtual bool guessParamsFromFilename(const std::string& filename, std::string *colorspace, OFX::PreMultiplicationEnum *filePremult, OFX::PixelComponentEnum *components, int *componentCount) OVERRIDE FINAL;
+    virtual bool guessParamsFromFilename(const std::string& filename, std::string *colorspace, OFX::PixelComponentEnum *components, int *componentCount) OVERRIDE FINAL;
     virtual void changedFilename(const OFX::InstanceChangedArgs &args) OVERRIDE FINAL;
     void genLayerMenu();
     std::string _filename;
@@ -703,11 +703,11 @@ bool ReadPSDPlugin::getFrameBounds(const std::string& /*filename*/,
 
 bool ReadPSDPlugin::guessParamsFromFilename(const std::string& /*newFile*/,
                                        std::string *colorspace,
-                                       OFX::PreMultiplicationEnum *filePremult,
+                                      
                                        OFX::PixelComponentEnum *components,
                                        int *componentCount)
 {
-    assert(colorspace && filePremult && components && componentCount);
+    assert(colorspace && components && componentCount);
 # ifdef OFX_IO_USING_OCIO
     *colorspace = "sRGB";
 # endif
@@ -737,7 +737,6 @@ bool ReadPSDPlugin::guessParamsFromFilename(const std::string& /*newFile*/,
     }
 
     *components = OFX::ePixelComponentRGBA;
-    *filePremult = OFX::eImageUnPreMultiplied;
 
     return true;
 }
