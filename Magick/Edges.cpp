@@ -95,9 +95,9 @@ EdgesPlugin::EdgesPlugin(OfxImageEffectHandle handle)
 {
     Magick::InitializeMagick(NULL);
     dstClip_ = fetchClip(kOfxImageEffectOutputClipName);
-    assert(dstClip_ && dstClip_->getPixelComponents() == OFX::ePixelComponentRGBA);
+    assert(dstClip_ && (dstClip_->getPixelComponents() == OFX::ePixelComponentRGBA || dstClip_->getPixelComponents() == OFX::ePixelComponentAlpha));
     srcClip_ = fetchClip(kOfxImageEffectSimpleSourceClipName);
-    assert(srcClip_ && srcClip_->getPixelComponents() == OFX::ePixelComponentRGBA);
+    assert(srcClip_ && (srcClip_->getPixelComponents() == OFX::ePixelComponentRGBA || srcClip_->getPixelComponents() == OFX::ePixelComponentAlpha));
 
     brightness_ = fetchDoubleParam(kParamBrightness);
     smoothing_ = fetchDoubleParam(kParamSmoothing);
@@ -159,7 +159,8 @@ void EdgesPlugin::render(const OFX::RenderArguments &args)
 
     // get pixel component
     OFX::PixelComponentEnum dstComponents  = dstImg->getPixelComponents();
-    if (dstComponents != OFX::ePixelComponentRGBA || (srcImg.get() && (dstComponents != srcImg->getPixelComponents()))) {
+    if ((dstComponents != OFX::ePixelComponentRGBA && dstComponents != OFX::ePixelComponentAlpha) ||
+        (srcImg.get() && srcImg->getPixelComponents() != dstComponents)) {
         OFX::throwSuiteStatusException(kOfxStatErrFormat);
         return;
     }
@@ -202,10 +203,11 @@ void EdgesPlugin::render(const OFX::RenderArguments &args)
     Magick::Image image(Magick::Geometry(width,height),Magick::Color("rgba(0,0,0,0)"));
     Magick::Image output(Magick::Geometry(width,height),Magick::Color("rgba(0,0,0,1)"));
     if (srcClip_ && srcClip_->isConnected())
-        image.read(width,height,"RGBA",Magick::FloatPixel,(float*)srcImg->getPixelData());
+        magickReadPixels(image,width,height,dstComponents,eMagickAlphaGray,srcImg->getPixelData());
 
     // grayscale
-    if (gray) {
+    const bool alphaOnly = dstComponents == OFX::ePixelComponentAlpha;
+    if (gray && !alphaOnly) {
         image.quantizeColorSpace(Magick::GRAYColorspace);
         image.quantize();
     }
@@ -221,9 +223,12 @@ void EdgesPlugin::render(const OFX::RenderArguments &args)
 #if MagickLibVersion >= 0x708
     // https://github.com/ImageMagick/ImageMagick/issues/1298
     // REMOVE WHEN ISSUE HAS BEEN RESOLVED
-    Magick::Image alphaChannel(image);
-    alphaChannel.channel(Magick::AlphaChannel);
-    image.alpha(false);
+    Magick::Image alphaChannel;
+    if (!alphaOnly) {
+        alphaChannel = image;
+        alphaChannel.channel(Magick::AlphaChannel);
+        image.alpha(false);
+    }
 #endif
 
     switch (kernel) {
@@ -319,8 +324,10 @@ void EdgesPlugin::render(const OFX::RenderArguments &args)
 #if MagickLibVersion >= 0x708
     // https://github.com/ImageMagick/ImageMagick/issues/1298
     // REMOVE WHEN ISSUE HAS BEEN RESOLVED
-    image.alpha(true);
-    image.composite(alphaChannel, 0, 0, Magick::CopyAlphaCompositeOp);
+    if (!alphaOnly) {
+        image.alpha(true);
+        image.composite(alphaChannel, 0, 0, Magick::CopyAlphaCompositeOp);
+    }
 #endif
 
     // multiply
@@ -337,7 +344,9 @@ void EdgesPlugin::render(const OFX::RenderArguments &args)
     }
 
     // return image
-    if (dstClip_ && dstClip_->isConnected()) {
+    if (dstClip_ && dstClip_->isConnected() && dstComponents == OFX::ePixelComponentAlpha) {
+        magickWriteAlphaPixels(image,0,0,args.renderWindow.x2 - args.renderWindow.x1,args.renderWindow.y2 - args.renderWindow.y1,eMagickAlphaGray,dstImg->getPixelData());
+    } else if (dstClip_ && dstClip_->isConnected()) {
         output.composite(image, 0, 0, Magick::OverCompositeOp);
 #if MagickLibVersion >= 0x700
         output.composite(image, 0, 0, Magick::CopyAlphaCompositeOp);
@@ -371,7 +380,7 @@ void EdgesPluginFactory::describe(OFX::ImageEffectDescriptor &desc)
     // basic labels
     desc.setLabel(kPluginName);
     desc.setPluginGrouping(kPluginGrouping);
-    desc.setPluginDescription("Edge extraction node.");
+    desc.setPluginDescription("Edge extraction node. On an alpha-only stream it stylises the matte as a grayscale picture and outputs one channel.");
 
     // add the supported contexts
     desc.addSupportedContext(eContextGeneral);
@@ -398,6 +407,7 @@ void EdgesPluginFactory::describeInContext(OFX::ImageEffectDescriptor &desc, Con
     // create the mandated source clip
     ClipDescriptor *srcClip = desc.defineClip(kOfxImageEffectSimpleSourceClipName);
     srcClip->addSupportedComponent(ePixelComponentRGBA);
+    srcClip->addSupportedComponent(ePixelComponentAlpha);
     srcClip->setTemporalClipAccess(false);
     srcClip->setSupportsTiles(kSupportsTiles);
     srcClip->setIsMask(false);
@@ -405,6 +415,7 @@ void EdgesPluginFactory::describeInContext(OFX::ImageEffectDescriptor &desc, Con
     // create the mandated output clip
     ClipDescriptor *dstClip = desc.defineClip(kOfxImageEffectOutputClipName);
     dstClip->addSupportedComponent(ePixelComponentRGBA);
+    dstClip->addSupportedComponent(ePixelComponentAlpha);
     dstClip->setSupportsTiles(kSupportsTiles);
 
     // make some pages
