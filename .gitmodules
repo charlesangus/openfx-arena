@@ -3,7 +3,7 @@
 	url = https://github.com/NatronGitHub/openfx.git
 [submodule "SupportExt"]
 	path = SupportExt
-	url = https://github.com/NatronGitHub/openfx-supportext.git
+	url = https://github.com/charlesangus/openfx-supportext.git
 [submodule "OpenFX-IO"]
 	path = OpenFX-IO
 	url = https://github.com/NatronGitHub/openfx-io.git
