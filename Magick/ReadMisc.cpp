@@ -58,7 +58,7 @@ private:
     virtual bool isVideoStream(const std::string& /*filename*/) OVERRIDE FINAL { return false; }
     virtual void decode(const std::string& filename, OfxTime time, int view, bool isPlayback, const OfxRectI& renderWindow, const OfxPointD& renderScale, float *pixelData, const OfxRectI& bounds, OFX::PixelComponentEnum pixelComponents, int pixelComponentCount, int rowBytes) OVERRIDE FINAL;
     virtual bool getFrameBounds(const std::string& filename, OfxTime time, int view, OfxRectI *bounds, OfxRectI* format, double *par, std::string *error, int *tile_width, int *tile_height) OVERRIDE FINAL;
-    virtual bool guessParamsFromFilename(const std::string& filename, std::string *colorspace, OFX::PreMultiplicationEnum *filePremult, OFX::PixelComponentEnum *components, int *componentCount) OVERRIDE FINAL;
+    virtual bool guessParamsFromFilename(const std::string& filename, std::string *colorspace, OFX::PixelComponentEnum *components, int *componentCount) OVERRIDE FINAL;
 };
 
 ReadMiscPlugin::ReadMiscPlugin(OfxImageEffectHandle handle, const std::vector<std::string>& extensions)
@@ -141,11 +141,11 @@ bool ReadMiscPlugin::getFrameBounds(const std::string& filename,
 
 bool ReadMiscPlugin::guessParamsFromFilename(const std::string& /*newFile*/,
                                        std::string *colorspace,
-                                       OFX::PreMultiplicationEnum *filePremult,
+                                      
                                        OFX::PixelComponentEnum *components,
                                        int *componentCount)
 {
-    assert(colorspace && filePremult && components && componentCount);
+    assert(colorspace && components && componentCount);
 # ifdef OFX_IO_USING_OCIO
     *colorspace = "sRGB";
 # endif
@@ -171,7 +171,6 @@ bool ReadMiscPlugin::guessParamsFromFilename(const std::string& /*newFile*/,
     }
 
     *components = OFX::ePixelComponentRGBA;
-    *filePremult = OFX::eImageUnPreMultiplied;
 
     return true;
 }
