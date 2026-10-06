@@ -71,9 +71,9 @@ OilpaintPlugin::OilpaintPlugin(OfxImageEffectHandle handle)
 {
     Magick::InitializeMagick(NULL);
     dstClip_ = fetchClip(kOfxImageEffectOutputClipName);
-    assert(dstClip_ && dstClip_->getPixelComponents() == OFX::ePixelComponentRGBA);
+    assert(dstClip_ && (dstClip_->getPixelComponents() == OFX::ePixelComponentRGBA || dstClip_->getPixelComponents() == OFX::ePixelComponentAlpha));
     srcClip_ = fetchClip(kOfxImageEffectSimpleSourceClipName);
-    assert(srcClip_ && srcClip_->getPixelComponents() == OFX::ePixelComponentRGBA);
+    assert(srcClip_ && (srcClip_->getPixelComponents() == OFX::ePixelComponentRGBA || srcClip_->getPixelComponents() == OFX::ePixelComponentAlpha));
 
     radius_ = fetchDoubleParam(kParamRadius);
     enableOpenMP_ = fetchBooleanParam(kParamOpenMP);
@@ -131,7 +131,8 @@ void OilpaintPlugin::render(const OFX::RenderArguments &args)
 
     // get pixel component
     OFX::PixelComponentEnum dstComponents  = dstImg->getPixelComponents();
-    if (dstComponents != OFX::ePixelComponentRGBA || (srcImg.get() && (dstComponents != srcImg->getPixelComponents()))) {
+    if ((dstComponents != OFX::ePixelComponentRGBA && dstComponents != OFX::ePixelComponentAlpha) ||
+        (srcImg.get() && srcImg->getPixelComponents() != dstComponents)) {
         OFX::throwSuiteStatusException(kOfxStatErrFormat);
         return;
     }
@@ -167,14 +168,16 @@ void OilpaintPlugin::render(const OFX::RenderArguments &args)
     Magick::Image image(Magick::Geometry(width,height),Magick::Color("rgba(0,0,0,0)"));
     Magick::Image output(Magick::Geometry(width,height),Magick::Color("rgba(0,0,0,1)"));
     if (srcClip_ && srcClip_->isConnected())
-        image.read(width,height,"RGBA",Magick::FloatPixel,(float*)srcImg->getPixelData());
+        magickReadPixels(image,width,height,dstComponents,eMagickAlphaGray,srcImg->getPixelData());
 
     // oilpaint
     if (radius>0)
         image.oilPaint(std::floor(radius * args.renderScale.x + 0.5));
 
     // return image
-    if (dstClip_ && dstClip_->isConnected()) {
+    if (dstClip_ && dstClip_->isConnected() && dstComponents == OFX::ePixelComponentAlpha) {
+        magickWriteAlphaPixels(image,0,0,args.renderWindow.x2 - args.renderWindow.x1,args.renderWindow.y2 - args.renderWindow.y1,eMagickAlphaGray,dstImg->getPixelData());
+    } else if (dstClip_ && dstClip_->isConnected()) {
         output.composite(image, 0, 0, Magick::OverCompositeOp);
 #if MagickLibVersion >= 0x700
         output.composite(image, 0, 0, Magick::CopyAlphaCompositeOp);
@@ -208,7 +211,7 @@ void OilpaintPluginFactory::describe(OFX::ImageEffectDescriptor &desc)
     // basic labels
     desc.setLabel(kPluginName);
     desc.setPluginGrouping(kPluginGrouping);
-    desc.setPluginDescription("Oilpaint filter node.");
+    desc.setPluginDescription("Oilpaint filter node. On an alpha-only stream it stylises the matte as a grayscale picture and outputs one channel.");
 
     // add the supported contexts
     desc.addSupportedContext(eContextGeneral);
@@ -235,6 +238,7 @@ void OilpaintPluginFactory::describeInContext(OFX::ImageEffectDescriptor &desc, 
     // create the mandated source clip
     ClipDescriptor *srcClip = desc.defineClip(kOfxImageEffectSimpleSourceClipName);
     srcClip->addSupportedComponent(ePixelComponentRGBA);
+    srcClip->addSupportedComponent(ePixelComponentAlpha);
     srcClip->setTemporalClipAccess(false);
     srcClip->setSupportsTiles(kSupportsTiles);
     srcClip->setIsMask(false);
@@ -242,6 +246,7 @@ void OilpaintPluginFactory::describeInContext(OFX::ImageEffectDescriptor &desc, 
     // create the mandated output clip
     ClipDescriptor *dstClip = desc.defineClip(kOfxImageEffectOutputClipName);
     dstClip->addSupportedComponent(ePixelComponentRGBA);
+    dstClip->addSupportedComponent(ePixelComponentAlpha);
     dstClip->setSupportsTiles(kSupportsTiles);
 
     // make some pages
