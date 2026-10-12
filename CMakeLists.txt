@@ -28,15 +28,10 @@ CMAKE_MINIMUM_REQUIRED(VERSION 3.1)
 PROJECT(Arena CXX)
 ENABLE_TESTING()
 
-option(OLD_POPPLER "Support poppler-lib < 0.83" OFF)
 option(AUDIO "Enable AudioCurve OFX" OFF)
 option(RICHTEXT "Enable RichText OFX" OFF)
 option(HALDCLUT "Enable HaldCLUT OFX (requires curl)" OFF)
 option(BUNDLE_FONTS_CONF "Bundle fonts.conf" OFF)
-option(READMISC_LEGACY "Enable legacy file formats in ReadMisc" OFF)
-option(WITH_SVG "Enable SVG reader (requires librsvg)" ON)
-option(WITH_PDF "Enable PDF reader (requires poppler)" ON)
-option(WITH_CDR "Enable CorelDRAW reader (requires libcdr and librevenge)" ON)
 set(MAGICK_PKG_CONFIG "Magick++" CACHE STRING "ImageMagick pkg-config name")
 
 # Require OpenGL
@@ -56,27 +51,9 @@ pkg_search_module(FONTCONFIG REQUIRED fontconfig)
 pkg_search_module(PANGO REQUIRED pangocairo)
 pkg_search_module(XML REQUIRED libxml-2.0)
 pkg_search_module(ZIP REQUIRED libzip)
-if(${WITH_SVG})
-    pkg_search_module(SVG REQUIRED librsvg-2.0)
-endif()
 pkg_search_module(GLIB REQUIRED glib-2.0)
 pkg_search_module(CAIRO REQUIRED cairo)
-if(${WITH_PDF})
-    pkg_search_module(POPPLER REQUIRED poppler-glib)
-endif()
-if(${WITH_CDR})
-    pkg_check_modules(REVENGE REQUIRED librevenge-0.0 librevenge-generators-0.0 librevenge-stream-0.0)
-    pkg_search_module(CDR REQUIRED libcdr-0.1)
-endif()
 add_compile_options(${MAGICK_CFLAGS}) # we need the magick flags
-
-if(${READMISC_LEGACY})
-    add_definitions(-DREADMISC_LEGACY)
-endif()
-
-if(${OLD_POPPLER})
-    add_definitions(-DLEGACY_POPPLER)
-endif()
 
 if(${AUDIO})
     pkg_search_module(SOX REQUIRED sox)
@@ -116,15 +93,11 @@ INCLUDE_DIRECTORIES(${CMAKE_CURRENT_SOURCE_DIR}/SupportExt)
 INCLUDE_DIRECTORIES(${OPENFX_PATH}/include)
 INCLUDE_DIRECTORIES(${OPENFX_PATH}/Support/include)
 INCLUDE_DIRECTORIES(${OPENFX_PATH}/Support/Plugins/include)
-INCLUDE_DIRECTORIES(${CMAKE_CURRENT_SOURCE_DIR}/OpenFX-IO/IOSupport)
-INCLUDE_DIRECTORIES(${CMAKE_CURRENT_SOURCE_DIR}/OpenFX-IO/IOSupport/SequenceParsing)
-INCLUDE_DIRECTORIES(${CMAKE_CURRENT_SOURCE_DIR}/OpenFX-IO/IOSupport/SequenceParsing/tinydir)
 INCLUDE_DIRECTORIES(${CMAKE_CURRENT_SOURCE_DIR}/Magick)
 INCLUDE_DIRECTORIES(${CMAKE_CURRENT_SOURCE_DIR}/Extra)
 INCLUDE_DIRECTORIES(${CMAKE_CURRENT_SOURCE_DIR}/Audio)
 INCLUDE_DIRECTORIES(${CMAKE_CURRENT_SOURCE_DIR}/Bundle)
 INCLUDE_DIRECTORIES(${CMAKE_CURRENT_SOURCE_DIR}/Text)
-INCLUDE_DIRECTORIES(${CMAKE_CURRENT_SOURCE_DIR}/lodepng)
 #INCLUDE_DIRECTORIES(${CMAKE_CURRENT_SOURCE_DIR}/OCL)
 
 # Define "DEBUG" on debug builds
@@ -156,17 +129,12 @@ FILE(GLOB SUPPORT_SOURCES
     "SupportExt/ofxsTransformInteract.cpp"
     "SupportExt/ofxsShutter.cpp"
     "SupportExt/ofxsMultiPlane.cpp"
-    "OpenFX-IO/IOSupport/GenericReader.cpp"
-    "OpenFX-IO/IOSupport/GenericOCIO.cpp"
-    "OpenFX-IO/IOSupport/SequenceParsing/SequenceParsing.cpp"
     "SupportExt/*.h"
 )
 
 FILE(GLOB SOURCES
     "Text/TextOFX.cpp"
     "Text/RichText.cpp"
-    "Extra/OpenRaster.cpp"
-    "Extra/ReadKrita.cpp"
     "Magick/Arc.cpp"
     "Magick/Charcoal.cpp"
     "Magick/Edges.cpp"
@@ -175,8 +143,6 @@ FILE(GLOB SOURCES
     "Magick/Oilpaint.cpp"
     "Magick/Polar.cpp"
     "Magick/Polaroid.cpp"
-    "Magick/ReadMisc.cpp"
-    "Magick/ReadPSD.cpp"
     "Magick/Reflection.cpp"
     "Magick/Sketch.cpp"
     "Magick/Text.cpp"
@@ -187,14 +153,9 @@ FILE(GLOB SOURCES
     "Magick/Wave/Wave.cpp"
     "Magick/Morphology/Morphology.cpp"
     "Magick/MagickPlugin.cpp"
-    "lodepng/lodepng.cpp"
 )
 
 FILE(GLOB RESOURCES
-    "Extra/net.fxarena.openfx.*.png"
-    "Extra/net.fxarena.openfx.*.svg"
-    "Extra/fr.inria.openfx.*.png"
-    "Extra/fr.inria.openfx.*.svg"
     "Text/net.fxarena.openfx.*.png"
     "Text/net.fxarena.openfx.*.svg"
     "Magick/net.fxarena.openfx.*.png"
@@ -210,18 +171,6 @@ FILE(GLOB RESOURCES
     "Magick/Extra.png"
     "Magick/Extra.svg"
 )
-
-if(${WITH_SVG})
-    list(APPEND SOURCES "Extra/ReadSVG.cpp")
-endif()
-
-if(${WITH_PDF})
-    list(APPEND SOURCES "Extra/ReadPDF.cpp")
-endif()
-
-if(${WITH_CDR})
-    list(APPEND SOURCES "Extra/ReadCDR.cpp")
-endif()
 
 if(${AUDIO})
     list(APPEND SOURCES "Audio/AudioCurve.cpp")
@@ -300,12 +249,8 @@ include_directories(
     ${PANGO_INCLUDE_DIRS}
     ${XML_INCLUDE_DIRS}
     ${ZIP_INCLUDE_DIRS}
-    ${SVG_INCLUDE_DIRS}
     ${GLIB_INCLUDE_DIRS}
     ${CAIRO_INCLUDE_DIRS}
-    ${POPPLER_INCLUDE_DIRS}
-    ${REVENGE_INCLUDE_DIRS}
-    ${CDR_INCLUDE_DIRS}
 )
 target_link_libraries(
     ${PROJECT_NAME}
@@ -317,12 +262,8 @@ target_link_libraries(
     ${PANGO_LDFLAGS}
     ${XML_LDFLAGS}
     ${ZIP_LDFLAGS}
-    ${SVG_LDFLAGS}
     ${GLIB_LDFLAGS}
     ${CAIRO_LDFLAGS}
-    ${POPPLER_LDFLAGS}
-    ${REVENGE_LDFLAGS}
-    ${CDR_LDFLAGS}
 )
 
 if(${AUDIO})
