@@ -1,12 +1,22 @@
 #pragma once
 
 #include <cassert>
+#include <mutex>
 #include <Magick++.h>
 #ifdef IsNaN
 #undef IsNaN
 #endif
 
 #include "ofxsImageEffect.h"
+
+// ImageMagick's random seed is process-global, so every effect that seeds it must hold this
+// across the seed and the calls that draw from it. The function-local static is shared by all
+// translation units in the plug-in binary because the function is inline.
+static inline std::mutex &magickRandomMutex()
+{
+    static std::mutex mutex;
+    return mutex;
+}
 
 enum MagickAlphaMode {
     eMagickAlphaMatte,

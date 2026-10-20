@@ -23,6 +23,7 @@
 #include "ofxsImageEffect.h"
 #include "ofxNatron.h"
 #include <iostream>
+#include <mutex>
 
 #define kPluginName "TextureOFX"
 #define kPluginGrouping "Extra/Draw"
@@ -216,7 +217,8 @@ void TexturePlugin::render(const OFX::RenderArguments &args)
     int height = dstRod.y2-dstRod.y1;
     Magick::Image image(Magick::Geometry(width,height),Magick::Color("rgba(0,0,0,0)"));
 
-    // Set seed
+    // the seed is process-global in ImageMagick, so hold the lock from seeding until the noise is drawn
+    std::unique_lock<std::mutex> randomLock(magickRandomMutex());
 #ifndef NOMAGICKSEED
     Magick::SetRandomSeed(hash((unsigned)(args.time)^seed));
 #endif
@@ -274,6 +276,7 @@ void TexturePlugin::render(const OFX::RenderArguments &args)
             image.addNoise(Magick::LaplacianNoise);
             break;
         }
+        randomLock.unlock();
         if (effect>8 && effect<12) { // loops 1 2 3
 #if MagickLibVersion >= 0x700
             image.alpha(false);

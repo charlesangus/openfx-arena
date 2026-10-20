@@ -193,8 +193,7 @@ void SketchPlugin::render(const OFX::RenderArguments &args)
     // sketch
     // the noise seed is process-global in ImageMagick, so seed and sketch under one lock
     {
-        static std::mutex sketchMutex;
-        std::lock_guard<std::mutex> lock(sketchMutex);
+        std::lock_guard<std::mutex> lock(magickRandomMutex());
 #ifndef NOMAGICKSEED
         Magick::SetRandomSeed(0);
 #endif
