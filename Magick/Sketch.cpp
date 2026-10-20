@@ -23,6 +23,7 @@
 #include <iostream>
 #include <stdint.h>
 #include <cmath>
+#include <mutex>
 
 #define kPluginName "SketchOFX"
 #define kPluginGrouping "Extra/Filter"
@@ -190,7 +191,15 @@ void SketchPlugin::render(const OFX::RenderArguments &args)
         magickReadPixels(image,width,height,dstComponents,eMagickAlphaGray,srcImg->getPixelData());
 
     // sketch
-    image.sketch(std::floor(radius * args.renderScale.x + 0.5),std::floor(sigma * args.renderScale.x + 0.5),angle);
+    // the noise seed is process-global in ImageMagick, so seed and sketch under one lock
+    {
+        static std::mutex sketchMutex;
+        std::lock_guard<std::mutex> lock(sketchMutex);
+#ifndef NOMAGICKSEED
+        Magick::SetRandomSeed(0);
+#endif
+        image.sketch(std::floor(radius * args.renderScale.x + 0.5),std::floor(sigma * args.renderScale.x + 0.5),angle);
+    }
 
     // return image
     if (dstClip_ && dstClip_->isConnected() && dstComponents == OFX::ePixelComponentAlpha) {
