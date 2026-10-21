@@ -28,6 +28,8 @@
 #include <sys/stat.h>
 #include <sys/types.h>
 #include <cstring>
+#include <memory>
+#include <mutex>
 
 using namespace OFX;
 OFXS_NAMESPACE_ANONYMOUS_ENTER
@@ -224,9 +226,6 @@ public:
             }
         }
 
-        _lut = Magick::Image(Magick::Geometry(512, 512), Magick::Color("rgb(0,0,0)"));
-        _lut.comment("N/A");
-
         std::string currPath;
         _path->getValue(currPath);
         if (currPath.empty()) {
@@ -237,71 +236,110 @@ public:
         setPersistentMessage(OFX::Message::eMessageMessage, "", msg.str());
     }
 
+    virtual void prepareRender(const OFX::RenderArguments &args) OVERRIDE FINAL
+    {
+        std::string presetFile, url;
+        lutSource(args.time, &presetFile, &url);
+
+        std::lock_guard<std::mutex> loadLock(_lutLoadMutex);
+        if (cachedLut(presetFile)) {
+            return;
+        }
+        if (!url.empty() && !existsFile(presetFile) && !getFile(url, presetFile)) {
+            setPersistentMessage(OFX::Message::eMessageError, "", "Unable to download LUT");
+            OFX::throwSuiteStatusException(kOfxStatFailed);
+        }
+        std::shared_ptr<const Magick::Image> lut = readLutHeld(presetFile);
+        if (!lut && !url.empty()) {
+            if (!getFile(url, presetFile)) {
+                setPersistentMessage(OFX::Message::eMessageError, "", "Unable to download LUT");
+                OFX::throwSuiteStatusException(kOfxStatFailed);
+            }
+            lut = readLutHeld(presetFile);
+        }
+        if (lut) {
+            std::lock_guard<std::mutex> lock(_lutMutex);
+            _lut = lut;
+            _lutFile = presetFile;
+        }
+    }
+
     virtual void render(const OFX::RenderArguments &args, Magick::Image &image) OVERRIDE FINAL
     {
-        int preset = 0;
-        std::string custom, url, clut, category, filename/*, checksum*/, customPath;
-        _preset->getValueAtTime(args.time, preset);
-        _custom->getValueAtTime(args.time, custom);
-        _path->getValueAtTime(args.time, customPath);
+        std::string presetFile, url;
+        lutSource(args.time, &presetFile, &url);
 
-        std::string presetFile;
-
-        if (custom.empty()) {
-            if (_presets.size() > 0) {
-                category = _presets[preset][1];
-                filename = _presets[preset][2];
-            }
-            //checksum = _presets[preset][3];
-            if (category.empty() || filename.empty() /*|| checksum.empty()*/) {
-                setPersistentMessage(OFX::Message::eMessageError, "", "Unable to read XML");
-                OFX::throwSuiteStatusException(kOfxStatFailed);
-            }
-            url.append(kPluginRepoURL);
-            url.append("/" + category + "/" + filename);
-            clut.append(presetPath(customPath) + "/" + filename);
-            if (url.empty() || clut.empty()) {
-                setPersistentMessage(OFX::Message::eMessageError, "", "Missing XML data");
-                OFX::throwSuiteStatusException(kOfxStatFailed);
-            }
-            if (!existsFile(clut)) {
-                if (!getFile(url, clut)) {
-                    setPersistentMessage(OFX::Message::eMessageError, "", "Unable to download LUT");
-                    OFX::throwSuiteStatusException(kOfxStatFailed);
-                }
-            }
-            presetFile = clut;
-        } else {
-            presetFile = custom;
+        std::shared_ptr<const Magick::Image> lut = cachedLut(presetFile);
+        if (!lut) {
+            // A render of another LUT replaced the cache after prepareRender had the file on
+            // disk, so it only needs reading, which the hold this runs under allows.
+            lut = readLut(presetFile);
         }
-
-        if (_lut.comment() != presetFile) {
-            try {
-                _lut.read(presetFile.c_str());
-            } catch(Magick::Exception &exp) {
-                if (custom.empty()) {
-                    _lut.comment("N/A");
-                    if (!getFile(url, clut)) {
-                        setPersistentMessage(OFX::Message::eMessageError, "", "Unable to download LUT");
-                        OFX::throwSuiteStatusException(kOfxStatFailed);
-                    } else {
-                        _lut.read(presetFile.c_str());
-                    }
-                }
-            }
-            _lut.colorSpace(Magick::RGBColorspace);
-            _lut.comment(presetFile);
-        }
-
-        if (_lut.rows() >= 512 && _lut.rows() == _lut.columns() && _lut.comment() == presetFile) {
-            image.gamma(2.2);
-            image.haldClut(_lut);
-        } else {
+        if (!lut) {
             setPersistentMessage(OFX::Message::eMessageError, "", "Unable to read CLUT");
             OFX::throwSuiteStatusException(kOfxStatFailed);
         }
-
+        image.gamma(2.2);
+        image.haldClut(*lut);
     }
+
+    void lutSource(double time, std::string *presetFile, std::string *url)
+    {
+        int preset = 0;
+        std::string custom, customPath;
+        _preset->getValueAtTime(time, preset);
+        _custom->getValueAtTime(time, custom);
+        _path->getValueAtTime(time, customPath);
+
+        if (!custom.empty()) {
+            *presetFile = custom;
+            url->clear();
+            return;
+        }
+        std::string category, filename;
+        if (preset >= 0 && preset < (int)_presets.size()) {
+            category = _presets[preset][1];
+            filename = _presets[preset][2];
+        }
+        if (category.empty() || filename.empty()) {
+            setPersistentMessage(OFX::Message::eMessageError, "", "Unable to read XML");
+            OFX::throwSuiteStatusException(kOfxStatFailed);
+        }
+        *url = std::string(kPluginRepoURL) + "/" + category + "/" + filename;
+        *presetFile = presetPath(customPath) + "/" + filename;
+    }
+
+    std::shared_ptr<const Magick::Image> cachedLut(const std::string &presetFile)
+    {
+        std::lock_guard<std::mutex> lock(_lutMutex);
+        if (_lutFile != presetFile) {
+            return std::shared_ptr<const Magick::Image>();
+        }
+        return _lut;
+    }
+
+    static std::shared_ptr<const Magick::Image> readLutHeld(const std::string &presetFile)
+    {
+        MagickThreadLimitScope threadLimit(0);
+        return readLut(presetFile);
+    }
+
+    static std::shared_ptr<const Magick::Image> readLut(const std::string &presetFile)
+    {
+        std::shared_ptr<Magick::Image> lut = std::make_shared<Magick::Image>();
+        try {
+            lut->read(presetFile.c_str());
+        } catch (Magick::Warning &) {
+        } catch (Magick::Exception &) {
+            return std::shared_ptr<const Magick::Image>();
+        }
+        if (lut->rows() < 512 || lut->rows() != lut->columns()) {
+            return std::shared_ptr<const Magick::Image>();
+        }
+        lut->colorSpace(Magick::RGBColorspace);
+        return lut;
+    }
+
     virtual void changedParam(const OFX::InstanceChangedArgs &args, const std::string &paramName) OVERRIDE FINAL;
     bool getFile(const std::string location, const std::string &destination)
     {
@@ -354,7 +392,13 @@ public:
 private:
     std::vector<std::vector<std::string> > _presets;
     ChoiceParam *_preset;
-    Magick::Image _lut;
+    // The load mutex keeps two renders from downloading or reading the same file at once and is
+    // never taken under a thread-limit hold; _lutMutex only guards the cache, so a render
+    // holding the thread limit can take it without waiting on a load.
+    std::mutex _lutLoadMutex;
+    std::mutex _lutMutex;
+    std::shared_ptr<const Magick::Image> _lut;
+    std::string _lutFile;
     StringParam *_custom;
     StringParam *_path;
 };
@@ -367,7 +411,9 @@ HaldCLUTPlugin::changedParam(const OFX::InstanceChangedArgs &args, const std::st
         return;
     }
     if (paramName == kParamCustom) {
-        _lut.comment("N/A");
+        std::lock_guard<std::mutex> lock(_lutMutex);
+        _lut.reset();
+        _lutFile.clear();
     }
     clearPersistentMessage();
 }

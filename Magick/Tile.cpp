@@ -22,6 +22,8 @@
 #include "ofxsMultiThread.h"
 #include "ofxsImageEffect.h"
 #include <iostream>
+#include <memory>
+#include <vector>
 
 #define kPluginName "TileOFX"
 #define kPluginGrouping "Extra/Transform"
@@ -203,13 +205,26 @@ void TilePlugin::render(const OFX::RenderArguments &args)
     Magick::Image image;
     Magick::Montage montage;
 
+    // Fetching can render upstream Magick effects, so every tile frame is fetched before the
+    // hold is taken.
+    std::vector<std::unique_ptr<const OFX::Image> > tileImages;
+    if (offset != 0) {
+        const int counter = firstFrame ? thumbs - 1 : thumbs;
+        int frame = args.time+offset;
+        tileImages.reserve(counter > 0 ? counter : 0);
+        for (int y = 0; y < counter; y++) {
+            tileImages.emplace_back(srcClip_->fetchImage(frame));
+            frame++;
+        }
+    }
+
     // OpenMP
 #ifndef LEGACYIM
     unsigned int threads = 1;
     if (_hasOpenMP && enableOpenMP)
         threads = OFX::MultiThread::getNumCPUs();
 
-    Magick::ResourceLimits::thread(threads);
+    MagickThreadLimitScope threadLimit(threads);
 #endif
 
     // read source image
@@ -252,17 +267,12 @@ void TilePlugin::render(const OFX::RenderArguments &args)
             imageList.push_back(image);
     }
     else { // time offset
-        int counter;
         if (firstFrame) {
             imageList.push_back(image);
-            counter=thumbs-1;
         }
-        else
-            counter=thumbs;
-        int frame = args.time+offset;
-        for(int y = 0; y < counter; y++) {
-            OFX::auto_ptr<const OFX::Image> tileImg(srcClip_->fetchImage(frame));
-            if (tileImg.get()) {
+        for (std::size_t y = 0; y < tileImages.size(); y++) {
+            const OFX::Image *tileImg = tileImages[y].get();
+            if (tileImg) {
                 OfxRectI tileRod;
                 tileRod = tileImg->getRegionOfDefinition();
                 int tileWidth = tileRod.x2-tileRod.x1;
@@ -276,7 +286,6 @@ void TilePlugin::render(const OFX::RenderArguments &args)
                         imageList.push_back(tmpTile);
                 }
             }
-            frame++;
         }
     }
 

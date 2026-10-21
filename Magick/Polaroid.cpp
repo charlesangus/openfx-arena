@@ -269,7 +269,7 @@ void PolaroidPlugin::render(const OFX::RenderArguments &args)
     if (_hasOpenMP && enableOpenMP)
         threads = OFX::MultiThread::getNumCPUs();
 
-    Magick::ResourceLimits::thread(threads);
+    MagickThreadLimitScope threadLimit(threads);
 #endif
 
     // read image

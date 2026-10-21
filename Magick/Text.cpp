@@ -416,13 +416,19 @@ void TextPlugin::render(const OFX::RenderArguments &args)
     if (!fontOverride.empty()) {
         font = fontOverride;
     }
+    // Fetching can render upstream Magick effects, so it must happen before the hold is taken.
+    OFX::auto_ptr<const OFX::Image> srcImg;
+    if (srcClip_ && srcClip_->isConnected() && cwidth==0 && cheight==0) {
+        srcImg.reset(srcClip_->fetchImage(args.time));
+    }
+
     // OpenMP
 #ifndef LEGACYIM
     unsigned int threads = 1;
     if (_hasOpenMP && enableOpenMP)
         threads = OFX::MultiThread::getNumCPUs();
 
-    Magick::ResourceLimits::thread(threads);
+    MagickThreadLimitScope threadLimit(threads);
 #endif
 
     // Generate empty image
@@ -536,19 +542,16 @@ void TextPlugin::render(const OFX::RenderArguments &args)
     image.flip();
 
     // add src clip if any
-    if (srcClip_ && srcClip_->isConnected() && cwidth==0 && cheight==0) {
-        OFX::auto_ptr<const OFX::Image> srcImg(srcClip_->fetchImage(args.time));
-        if (srcImg.get()) {
-            Magick::Image input;
-            input.read(width,height,"RGB",Magick::FloatPixel,(float*)srcImg->getPixelData());
+    if (srcImg.get()) {
+        Magick::Image input;
+        input.read(width,height,"RGB",Magick::FloatPixel,(float*)srcImg->getPixelData());
 #if MagickLibVersion >= 0x700
-            input.alpha(true);
+        input.alpha(true);
 #else
-            input.matte(true);
+        input.matte(true);
 #endif
-            input.composite(image,0,0,Magick::OverCompositeOp);
-            image=input;
-        }
+        input.composite(image,0,0,Magick::OverCompositeOp);
+        image=input;
     }
 
     // return image

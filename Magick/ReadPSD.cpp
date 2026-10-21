@@ -322,6 +322,7 @@ void ReadPSDPlugin::restoreStateFromParams()
     std::string filename;
     OfxStatus st = getFilenameAtTime(startingTime, &filename);
     if ( st == kOfxStatOK || !filename.empty() ) {
+        MagickThreadLimitScope threadLimit(0);
         _psd.clear();
         try {
             Magick::readImages(&_psd, filename);
@@ -408,6 +409,8 @@ void ReadPSDPlugin::decodePlane(const std::string& filename, OfxTime time, int /
     #ifdef DEBUG
     std::cout << "decodePlane ..." << std::endl;
     #endif
+
+    MagickThreadLimitScope threadLimit(0);
 
     int offsetX = 0;
     int offsetY = 0;
@@ -718,6 +721,7 @@ bool ReadPSDPlugin::guessParamsFromFilename(const std::string& /*newFile*/,
         return false;
     }
 
+    MagickThreadLimitScope threadLimit(0);
     _psd.clear();
     try {
         Magick::readImages(&_psd, filename);
@@ -753,6 +757,7 @@ void ReadPSDPlugin::changedFilename(const OFX::InstanceChangedArgs &args)
         OFX::throwSuiteStatusException(kOfxStatErrFormat);
     }
 
+    MagickThreadLimitScope threadLimit(0);
     _psd.clear();
     try {
         Magick::readImages(&_psd, filename);

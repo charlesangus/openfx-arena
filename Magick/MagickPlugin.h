@@ -83,6 +83,9 @@ public:
     virtual void render(const OFX::RenderArguments &args) OVERRIDE FINAL;
     virtual bool getRegionOfDefinition(const OFX::RegionOfDefinitionArguments &args, OfxRectD &rod) OVERRIDE FINAL;
     virtual void render(const OFX::RenderArguments &args, Magick::Image &image) = 0;
+    // Runs before the ImageMagick thread-limit hold is taken, for slow work such as network
+    // access that would otherwise keep every render asking for another limit waiting.
+    virtual void prepareRender(const OFX::RenderArguments &/*args*/) {}
     static OFX::PageParamDescriptor* describeInContextBegin(OFX::ImageEffectDescriptor &desc, OFX::ContextEnum context)
     {
         return MagickPluginHelperBase::describeInContextBegin(desc, context);
@@ -161,13 +164,15 @@ void MagickPluginHelper<SupportsRenderScale>::render(const OFX::RenderArguments 
     _matte->getValueAtTime(args.time, matte);
     _vpixel->getValueAtTime(args.time, vpixel);
 
+    prepareRender(args);
+
     // OpenMP
 #ifndef DISABLE_OPENMP
     unsigned int threads = 1;
     if (_hasMP && enableMP) {
         threads = OFX::MultiThread::getNumCPUs();
     }
-    Magick::ResourceLimits::thread(threads);
+    MagickThreadLimitScope threadLimit(threads);
 #endif
 
     // render
