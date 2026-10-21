@@ -167,7 +167,7 @@ void MagickPluginHelper<SupportsRenderScale>::render(const OFX::RenderArguments 
     if (_hasMP && enableMP) {
         threads = OFX::MultiThread::getNumCPUs();
     }
-    Magick::ResourceLimits::thread(threads);
+    MagickThreadLimitScope threadLimit(threads);
 #endif
 
     // render

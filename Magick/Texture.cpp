@@ -209,7 +209,7 @@ void TexturePlugin::render(const OFX::RenderArguments &args)
     if (_hasOpenMP && enableOpenMP)
         threads = OFX::MultiThread::getNumCPUs();
 
-    Magick::ResourceLimits::thread(threads);
+    MagickThreadLimitScope threadLimit(threads);
 #endif
 
     // Generate empty image
@@ -217,66 +217,66 @@ void TexturePlugin::render(const OFX::RenderArguments &args)
     int height = dstRod.y2-dstRod.y1;
     Magick::Image image(Magick::Geometry(width,height),Magick::Color("rgba(0,0,0,0)"));
 
-    // the seed is process-global in ImageMagick, so hold the lock from seeding until the noise is drawn
-    std::unique_lock<std::mutex> randomLock(magickRandomMutex());
-#ifndef NOMAGICKSEED
-    Magick::SetRandomSeed(hash((unsigned)(args.time)^seed));
-#endif
-
     // generate background
     try {
-        switch (effect) {
-        case 0: // Plasma
-            if (fromColor.empty() && toColor.empty())
-                image.read("plasma:");
-            else
-                image.read("plasma:"+fromColor+"-"+toColor);
-            break;
-        case 1: // Plasma Fractal
-            image.read("plasma:fractal");
-            break;
-        case 2: // GaussianNoise
-            image.addNoise(Magick::GaussianNoise);
-            break;
-        case 3: // ImpulseNoise
-            image.addNoise(Magick::ImpulseNoise);
-            break;
-        case 4: // LaplacianNoise
-            image.addNoise(Magick::LaplacianNoise);
-            break;
-        case 5: // checkerboard
-            image.read("pattern:checkerboard");
-            break;
-        case 6: // stripes
-            image.extent(Magick::Geometry(width,1));
-            image.addNoise(Magick::GaussianNoise);
-            image.channel(Magick::GreenChannel);
-            image.negate();
-            image.scale(Magick::Geometry(width,height));
-            break;
-        case 7: // gradient
-            if (fromColor.empty() && toColor.empty())
-                image.read("gradient:");
-            else
-                image.read("gradient:"+fromColor+"-"+toColor);
-            break;
-        case 8: // radial-gradient
-            if (fromColor.empty() && toColor.empty())
-                image.read("radial-gradient:");
-            else
-                image.read("radial-gradient:"+fromColor+"-"+toColor);
-            break;
-        case 9: // loops1
-            image.addNoise(Magick::GaussianNoise);
-            break;
-        case 10: // loops2
-            image.addNoise(Magick::ImpulseNoise);
-            break;
-        case 11: // loops3
-            image.addNoise(Magick::LaplacianNoise);
-            break;
+        {
+            // the seed is process-global in ImageMagick, so hold the lock from seeding until the noise is drawn
+            std::lock_guard<std::mutex> randomLock(magickRandomMutex());
+#ifndef NOMAGICKSEED
+            Magick::SetRandomSeed(hash((unsigned)(args.time)^seed));
+#endif
+            switch (effect) {
+            case 0: // Plasma
+                if (fromColor.empty() && toColor.empty())
+                    image.read("plasma:");
+                else
+                    image.read("plasma:"+fromColor+"-"+toColor);
+                break;
+            case 1: // Plasma Fractal
+                image.read("plasma:fractal");
+                break;
+            case 2: // GaussianNoise
+                image.addNoise(Magick::GaussianNoise);
+                break;
+            case 3: // ImpulseNoise
+                image.addNoise(Magick::ImpulseNoise);
+                break;
+            case 4: // LaplacianNoise
+                image.addNoise(Magick::LaplacianNoise);
+                break;
+            case 5: // checkerboard
+                image.read("pattern:checkerboard");
+                break;
+            case 6: // stripes
+                image.extent(Magick::Geometry(width,1));
+                image.addNoise(Magick::GaussianNoise);
+                image.channel(Magick::GreenChannel);
+                image.negate();
+                image.scale(Magick::Geometry(width,height));
+                break;
+            case 7: // gradient
+                if (fromColor.empty() && toColor.empty())
+                    image.read("gradient:");
+                else
+                    image.read("gradient:"+fromColor+"-"+toColor);
+                break;
+            case 8: // radial-gradient
+                if (fromColor.empty() && toColor.empty())
+                    image.read("radial-gradient:");
+                else
+                    image.read("radial-gradient:"+fromColor+"-"+toColor);
+                break;
+            case 9: // loops1
+                image.addNoise(Magick::GaussianNoise);
+                break;
+            case 10: // loops2
+                image.addNoise(Magick::ImpulseNoise);
+                break;
+            case 11: // loops3
+                image.addNoise(Magick::LaplacianNoise);
+                break;
+            }
         }
-        randomLock.unlock();
         if (effect>8 && effect<12) { // loops 1 2 3
 #if MagickLibVersion >= 0x700
             image.alpha(false);

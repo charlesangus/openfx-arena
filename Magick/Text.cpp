@@ -422,7 +422,7 @@ void TextPlugin::render(const OFX::RenderArguments &args)
     if (_hasOpenMP && enableOpenMP)
         threads = OFX::MultiThread::getNumCPUs();
 
-    Magick::ResourceLimits::thread(threads);
+    MagickThreadLimitScope threadLimit(threads);
 #endif
 
     // Generate empty image
@@ -537,7 +537,13 @@ void TextPlugin::render(const OFX::RenderArguments &args)
 
     // add src clip if any
     if (srcClip_ && srcClip_->isConnected() && cwidth==0 && cheight==0) {
+#ifndef LEGACYIM
+        threadLimit.release();
+#endif
         OFX::auto_ptr<const OFX::Image> srcImg(srcClip_->fetchImage(args.time));
+#ifndef LEGACYIM
+        threadLimit.acquire();
+#endif
         if (srcImg.get()) {
             Magick::Image input;
             input.read(width,height,"RGB",Magick::FloatPixel,(float*)srcImg->getPixelData());

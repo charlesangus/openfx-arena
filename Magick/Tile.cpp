@@ -209,7 +209,7 @@ void TilePlugin::render(const OFX::RenderArguments &args)
     if (_hasOpenMP && enableOpenMP)
         threads = OFX::MultiThread::getNumCPUs();
 
-    Magick::ResourceLimits::thread(threads);
+    MagickThreadLimitScope threadLimit(threads);
 #endif
 
     // read source image
@@ -261,7 +261,13 @@ void TilePlugin::render(const OFX::RenderArguments &args)
             counter=thumbs;
         int frame = args.time+offset;
         for(int y = 0; y < counter; y++) {
+#ifndef LEGACYIM
+            threadLimit.release();
+#endif
             OFX::auto_ptr<const OFX::Image> tileImg(srcClip_->fetchImage(frame));
+#ifndef LEGACYIM
+            threadLimit.acquire();
+#endif
             if (tileImg.get()) {
                 OfxRectI tileRod;
                 tileRod = tileImg->getRegionOfDefinition();
