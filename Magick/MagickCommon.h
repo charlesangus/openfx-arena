@@ -2,6 +2,7 @@
 
 #include <cassert>
 #include <condition_variable>
+#include <deque>
 #include <mutex>
 #include <Magick++.h>
 #ifdef IsNaN
@@ -22,10 +23,16 @@ inline std::mutex &magickRandomMutex()
 // ImageMagick's thread limit is process-global, and many of its operations read it once to size
 // per-thread scratch arrays and again to pick the worker count or to free those arrays, so
 // changing it while another call runs can index or free past the end of an array. A scope
-// holds the limit fixed for its lifetime: scopes asking for the same limit run together, a
-// scope asking for a different one waits until the current holders leave, and a scope asking
-// for 0 runs under whatever limit is in force without ever waiting. Release the scope around
-// host calls that can render upstream effects, or a nested Magick render can wait on it forever.
+// holds the limit fixed for its lifetime; scopes holding at once form a group sharing one limit.
+// When nobody waits, a scope joins the current group if its limit matches or it asks for 0
+// (meaning whatever limit is in force), and otherwise queues. Once anybody queues, every
+// newcomer queues too, so a stream of arrivals cannot keep a group alive. When a group
+// empties, the longest waiter's limit forms the next group, which admits every queued scope
+// asking for that limit or for 0; a queued scope is therefore admitted no later than the group
+// formed for it when it reaches the head of the queue. A scope nested on a thread that
+// already holds one joins at once when its limit matches, since queueing behind itself would
+// never end. Release the scope around host calls that can render upstream effects, or a nested
+// Magick render on another thread can wait on it forever.
 class MagickThreadLimitScope
 {
 public:
@@ -41,6 +48,9 @@ public:
         release();
     }
 
+    MagickThreadLimitScope(const MagickThreadLimitScope &) = delete;
+    MagickThreadLimitScope &operator=(const MagickThreadLimitScope &) = delete;
+
     void acquire()
     {
         if (_held) {
@@ -48,29 +58,22 @@ public:
         }
         State &s = state();
         std::unique_lock<std::mutex> lock(s.mutex);
-        if (_threads != 0) {
-            // A newcomer may not join a matching group while others wait, or a steady stream
-            // of one limit would starve the other; it joins only a group formed after it arrived.
-            if (s.active != 0 && !(s.limit == _threads && s.waiting == 0)) {
-                const unsigned long arrival = s.epoch;
-                ++s.waiting;
-                s.changed.wait(lock, [&] {
-                    return s.active == 0 || (s.limit == _threads && s.epoch != arrival);
-                });
-                --s.waiting;
-            }
+        const bool matches = _threads == 0 || s.limit == _threads;
+        if (s.active == 0 && s.queue.empty()) {
+            setLimit(s, _threads);
+            ++s.active;
+        } else if (matches && (s.queue.empty() || heldOnThisThread() != 0)) {
+            ++s.active;
+        } else {
+            Waiter self;
+            self.threads = _threads;
+            s.queue.push_back(&self);
             if (s.active == 0) {
-                ++s.epoch;
-                if (s.limit != _threads) {
-                    Magick::ResourceLimits::thread(_threads);
-                    s.limit = _threads;
-                }
-                if (s.waiting != 0) {
-                    s.changed.notify_all();
-                }
+                formGroup(s);
             }
+            s.changed.wait(lock, [&] { return self.admitted; });
         }
-        ++s.active;
+        ++heldOnThisThread();
         _held = true;
     }
 
@@ -80,16 +83,20 @@ public:
             return;
         }
         _held = false;
+        --heldOnThisThread();
         State &s = state();
         std::lock_guard<std::mutex> lock(s.mutex);
-        if (--s.active == 0) {
-            s.changed.notify_all();
+        if (--s.active == 0 && !s.queue.empty()) {
+            formGroup(s);
         }
     }
 
 private:
-    MagickThreadLimitScope(const MagickThreadLimitScope &);
-    MagickThreadLimitScope &operator=(const MagickThreadLimitScope &);
+    struct Waiter
+    {
+        unsigned int threads = 0;
+        bool admitted = false;
+    };
 
     struct State
     {
@@ -97,14 +104,47 @@ private:
         std::condition_variable changed;
         unsigned int limit = 0;
         unsigned int active = 0;
-        unsigned int waiting = 0;
-        unsigned long epoch = 0;
+        std::deque<Waiter *> queue;
     };
 
     static State &state()
     {
         static State s;
         return s;
+    }
+
+    static unsigned int &heldOnThisThread()
+    {
+        static thread_local unsigned int held = 0;
+        return held;
+    }
+
+    static void setLimit(State &s, unsigned int threads)
+    {
+        if (threads != 0 && s.limit != threads) {
+            Magick::ResourceLimits::thread(threads);
+            s.limit = threads;
+        }
+    }
+
+    // Called with the mutex held, no holders and a non-empty queue. Admission is recorded in
+    // each waiter rather than signalled, so a waiter that has not started waiting yet still
+    // sees it.
+    static void formGroup(State &s)
+    {
+        assert(s.active == 0 && !s.queue.empty());
+        setLimit(s, s.queue.front()->threads);
+        std::deque<Waiter *>::iterator kept = s.queue.begin();
+        for (std::deque<Waiter *>::iterator it = s.queue.begin(); it != s.queue.end(); ++it) {
+            if ((*it)->threads == 0 || (*it)->threads == s.limit) {
+                (*it)->admitted = true;
+                ++s.active;
+            } else {
+                *kept++ = *it;
+            }
+        }
+        s.queue.erase(kept, s.queue.end());
+        s.changed.notify_all();
     }
 
     unsigned int _threads;
